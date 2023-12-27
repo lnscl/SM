@@ -1,7 +1,0 @@
-table_wr: table of water requirements for alfalfa (ALF), peach (PCH), LCM (long-cycle maize) and SCM (short-cycle maize) in mm from Cropwat (crop irrigation schedule - Gr. Irr).
-
-9013_9047_accuvol.txt: accumulated inflow volumes since the beginning of the season, combining data from two measurement stations (9013 - Graus and 9047 - Capella).
-
-percentiles_9013_9047_accuvol: 
-
-SFprediction_ARIMA_v3.csv:
