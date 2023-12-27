@@ -1,0 +1,195 @@
+---
+title: "F1_score"
+output: html_document
+date: "2023-12-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+run <- 'run1'
+
+wd <- getwd()
+folder <- file.path("./", run)
+version <- "v1"
+
+# INPUT FILES
+
+## Crops
+crop_files <- list.files(folder, pattern = paste0('crops_May.*_', decision), full = T)
+nams <- basename(crop_files)
+nams <- gsub('crops_May_', '', nams)
+nams <- gsub('_[a-z].txt', '', nams)
+nams <- gsub('_ens', '', nams)
+nams <- gsub('SF', '', nams)
+nams <- gsub('0', '', nams)
+nams <- gsub('ean', '', nams)
+
+crops_dat <- do.call(rbind, lapply(1:length(crop_files), function(i) {
+  a <- read.table(crop_files[i])
+  a$information <- nams[i]
+  a$year <- rownames(a)
+  return(a)
+}))
+
+colnames(crops_dat) <- gsub('D', '', colnames(crops_dat))
+#dat <- melt(crops_dat, id.vars = c('year', colnames(crops_dat)[1:8], 'information'))
+#colnames(dat)[colnames(dat) == "year"] <- "hyear"
+
+## Curtailments
+AD_files <- list.files(folder, pattern = paste0('AD_.*_', decision), full = T)
+
+AD_dat <- do.call(rbind, lapply(1:length(AD_files), function(i) {
+  a <- read.table(AD_files[i], header = T)
+  a$information <- nams[i]
+  return(a)
+}))
+
+#Availability (blue-red)
+Pbr <- crops_dat[crops_dat$information=="P", 9:14]
+br <- crops_dat[crops_dat$information!="P", 9:14]
+Nbr <- crops_dat[crops_dat$information=="N", 9:14]
+
+scenarios <- unique(crops_dat$information)
+
+# Version 1: tp and tn from comparison with perfect information
+if(version == "v1"){
+  PN_T2 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    c(
+      tp = sum(Pbr$May==1&Xbr$May==1), 
+      tn = sum(Pbr$May==0&Xbr$May==0),
+      fp = sum(Pbr$May==0&Xbr$May==1),
+      fn = sum(Pbr$May==1&Xbr$May==0)
+    )})))
+  
+  PN_R3 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    c(
+      tp = sum(Pbr$Apr==1&Xbr$Apr==1),
+      tn = sum(Pbr$Apr==0&Xbr$Apr==0),
+      fp = sum(Pbr$Apr==0&Xbr$Apr==1),
+      fn = sum(Pbr$Apr==1&Xbr$Apr==0)
+    )})))
+  
+  PN_R2 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    c(
+      tp = sum(Pbr$Feb==1&Xbr$Feb==1&Xbr$Apr==1),
+      tn = sum(Pbr$Feb==0&Xbr$Feb==0),
+      fp = sum(Pbr$Feb==0&Xbr$Feb==1),
+      fn = sum(Pbr$Feb==1&Xbr$Feb==0|Pbr$Feb==1&Xbr$Feb==1&Xbr$Apr==0)
+    )})))
+  
+  PN_R1 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    c(  
+      tp = sum(Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==1&Xbr$Apr==1),
+      tn = sum(Pbr$Nov==0&Xbr$Nov==0),
+      fp = sum(Pbr$Nov==0&Xbr$Nov==1),
+      fn = sum((Pbr$Nov==1&Xbr$Nov==0)|(Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==0)|
+                 (Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==1&Xbr$Apr==0)) #the second is for those that plant SCB, the third for those that leave the land fallow
+    )})))
+}
+
+# Version 2: tp and tn from preferred decision perspective
+if(version == "v2"){
+  ## tp maize planted and no curtailments
+  ## fp maize planted and curtailments
+  ## tn no maize planted and no maize planted in P
+  ## fn no maize planted and maize planted in P
+  PN_T2 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    ADX <- AD_dat[AD_dat$information == x,]
+    c(
+      tp = sum(Xbr$May==1&is.na(ADX$p2LCM)&is.na(ADX$p2SCM)),
+      fp = sum(Pbr$May==0&Xbr$May==1&!is.na(ADX$p2LCM)|!is.na(ADX$p2SCM)),
+      tn = sum(Pbr$May==0&Xbr$May==0),
+      fn = sum(Pbr$May==1&Xbr$May==0)
+    )})))
+  
+  PN_R3 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    ADX <- AD_dat[AD_dat$information == x,]
+    c(
+      tp = sum(Xbr$Apr==1&is.na(ADX$p2LCM)&is.na(ADX$p2SCM)),
+      fp = sum(Xbr$Apr==1&!is.na(ADX$p2LCM)|!is.na(ADX$p2SCM)),
+      tn = sum(Pbr$Apr==0&Xbr$Apr==0),
+      fn = sum(Pbr$Apr==1&Xbr$Apr==0)
+    )})))
+  
+  PN_R2 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    ADX <- AD_dat[AD_dat$information == x,]
+    c(
+      tp = sum(Xbr$Feb==1&Xbr$Apr==1&is.na(ADX$p2LCM)&is.na(ADX$p2SCM)),
+      fp = sum(Xbr$Feb==1&Xbr$Apr==1&!is.na(ADX$p2LCM)|!is.na(ADX$p2SCM)),
+      tn = sum(Pbr$Feb==0&Xbr$Feb==0),
+      fn = sum(Pbr$Feb==1&Xbr$Feb==0|Pbr$Feb==1&Xbr$Feb==1&Xbr$Apr==0)
+    )})))
+  
+  PN_R1 <- as.data.frame(do.call(rbind, lapply(scenarios, function(x){
+    Xbr <- crops_dat[crops_dat$information==x, 9:14]
+    ADX <- AD_dat[AD_dat$information == x,]
+    c(  
+      tp = sum(Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==1&Xbr$Apr==1),
+      tn = sum(Pbr$Nov==0&Xbr$Nov==0),
+      fp = sum(Pbr$Nov==0&Xbr$Nov==1),
+      fn = sum((Pbr$Nov==1&Xbr$Nov==0)|(Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==0)|
+                 (Pbr$Nov==1&Xbr$Nov==1&Xbr$Feb==1&Xbr$Apr==0)) #the second is for those that plant SCB, the third for those that leave the land fallow
+    )})))
+}
+
+rownames(PN_T2) <- scenarios
+rownames(PN_R3) <- scenarios
+rownames(PN_R2) <- scenarios
+rownames(PN_R1) <- scenarios
+
+F1 <- lapply(list(PN_T2, PN_R3, PN_R2, PN_R1), function(x){
+  precision <- round(x$tp/(x$tp+x$fp), 2)
+  recall <- round(x$tp/(x$tp+x$fn), 2)
+  #specificity <- round(x$tn/(x$tn+x$fp), 2)
+  F1_score <- round(2*x$tp/(2*x$tp+x$fp+x$fn), 2)
+  accuracy <- round((x$tp+x$tn)/(x$tp+x$tn+x$fp+x$fn), 2)
+  return(cbind(x, F1_score, recall, precision, accuracy))
+})
+
+names(F1) <- c("T2", "R3", "R2", "R1")
+outfile <- file.path(folder, paste0("F1_score_", version, ".csv"))
+write.csv(F1, outfile)
+
+# plot
+
+F1b <- do.call(rbind, F1)
+F1b$farmer <- substr(rownames(F1b), 1, 2)
+F1b$scenario <- substr(rownames(F1b), 4, nchar(rownames(F1b)))
+
+## all values
+library("reshape2")
+library("ggplot2")
+
+# remove tp, tn, fp, fn and scenario P
+F1n <- F1b[F1b$scenario!="P", 5:10]
+F1n <- melt(F1n, id=c("farmer", "scenario"))
+F1n$scenario <- factor(F1n$scenario, levels = c("N", "F1", "F3", "F5", "F7", "F9", "FM", "F_p"), 
+                          labels = c("HE", "F10", "F30", "F50", "F70", "F90", "FM", "Fp"))
+
+# plot by farmer type
+f6 <- ggplot(F1n, aes(scenario, variable, fill=value))+
+  geom_tile()+
+  scale_fill_gradientn(colors=c("hotpink", "lightgoldenrod1", "aquamarine4"), limits = c(0,1))+
+  #  geom_text(aes(label=value))+
+  facet_wrap(.~farmer, ncol=4)+
+  labs(y="")+
+  theme(panel.background = element_blank(), text=element_text(size=16), axis.text.x = element_text(angle = 90, vjust = .5))
+
+outfile <- file.path(folder, 'plots', paste0('scores_', decision, '.pdf'))
+pdf(outfile, width = 10, height = 2.5)
+print(f6)
+dev.off()
+
+
+```

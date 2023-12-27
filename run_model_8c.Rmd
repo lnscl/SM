@@ -1,0 +1,542 @@
+---
+title: "Decision mode"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Changes to the model from the version used for Lines et al 2018 (https://doi.org/10.5194/hess-22-5901-2018, 2018)
+- farmers decision only
+- decision based on the water balance
+- allocation of water between the 2 types of farmers: both types of farmers can use as much as they need as long as there is water, and if there is not enough they receive the same reduction from that point on.
+
+```{r}
+
+# INPUT
+
+run <- 'run1'
+
+ensth_list <- c('ens10', 'ens30', 'ens50', 'ens70', 'ens90', 'ensMeanSF', 'SFp')
+
+# proportion of farmers
+T1 <- 0.35 #35% single-crop farmers
+T2 <- 1- T1
+
+R1 <- 1/3
+R2 <- 1/3
+R3 <- 1/3
+
+# area: Area that can be irrigated from only from Barasona (Area zona Alta)
+# p.alf & p.woo: Crop proportion in the area
+total_area <- 51747 #ha
+total_area_third <- total_area/3
+pAlf <- 1/3
+pWoo <- 1/3
+alloFactor <- 0.55
+crops_all <- c("LCB", "SCB", "LCM", "SCM", "ALF", "PCH")
+crops_var <- c("LCB", "SCB", "LCM", "SCM")
+
+valBarley <- 191 #euro/1000kg - with support.
+valMaize <- 181 #euro/1000kg - with support.
+cosBarley <- 400 #euro/ha.
+cosMaize <- 1438 #euro/ha.
+runVal <- 'bsl' # file name string for runs with value variation (e.g bsl, B2, M2)
+
+# dates
+startDate <- '1984-10-01'
+endDate <- '2016-09-30'
+startYear <- as.numeric(substr(startDate, 1, 4))
+endYear <- as.numeric(substr(endDate, 1, 4))
+hyears <- if(substr(startYear, 6, 7) %in% 1:9){hyear <- startYear:endYear}else{(startYear + 1):endYear}
+lead = 7 #for forecast data
+
+```
+
+```{r}
+
+# Data
+
+wd <- getwd()
+folder <- file.path(wd, run)
+if(!exists(folder)){dir.create(folder)}
+
+infolder <- file.path(wd, "input_files")
+wrtFile <- file.path(infolder, "table_wr.txt")
+reservoirInflow <- file.path(infolder, "9013_9047_accuvol.txt")
+percentilesFile <- file.path(infolder, "percentiles_9013_9047_accuvol.txt")
+SFforecastFile <- file.path(infolder, "SFprediction_ARIMA_v3.csv")
+
+plots_folder <- file.path(folder, "plots")
+if(!exists(plots_folder)){dir.create(plots_folder)}
+
+# functions
+source(file.path(wd, 'functions_v8.r'))
+
+# balance file:
+# N and F are in the same file. 
+# For decisions before irrigation season, single crop farmers use the decision balance for the corresponding proportion
+# For decisions after the start of the irrigation season the water balance is recalculated taking into account the crops already planted
+blcFile_dec1 <- file.path(folder, paste0('output_WB_', ensth_list, '.txt')) 
+
+# Availability
+
+## N
+### Availability at decision dates 
+AIne <- availability(reservoirInflow, percentilesFile, startDate, endDate, write.file = T, outputReturn = "all")
+### Extrapolated availability at the end of the season considering allocation factor
+AIne$AnEff <- AIne$AIne * alloFactor
+### year column
+AIne$year <- substr(AIne$dates, 1, 4)
+### Subset for the first days of the month
+AIne1 <- AIne[substr(AIne$date, 9, 10) == '01', ]
+
+## F
+### availability based on forecast & historic percentiles (gives accumulated volume after lead time)
+seq_percentiles = seq(0.1, 0.9, 0.1)
+AIneF <- availabilityF(reservoirInflow, percentilesFile, SFforecastFile, startDate, endDate, write.file = T, outputReturn = "AnF")
+AIneF_Eff <- data.frame(dates = AIneF[, 1], AIneF[, -1] * alloFactor)
+ensPercs <- t(apply(AIneF_Eff[, grep('SFx', colnames(AIneF_Eff))], 1, quantile, seq_percentiles))
+colnames(ensPercs) <- c(paste0('ens', seq_percentiles * 100))
+AIneF_Eff <- data.frame(AIneF_Eff, ensPercs)
+
+# Demand table
+## open demand file (water requirements for each crop and year) and extract demands for all crops (values in mm)
+wrt <- read.table(wrtFile, header = T)
+cols <- which(colnames(wrt) %in% crops_all)
+wrt <- wrt[, c(1, cols)]
+wrt$dates <- as.Date(wrt$dates)
+wrt$year <- as.numeric(substr(wrt$dates, 1, 4))
+
+## total demand per year (per hectare)
+wrt_year <- aggregate(wrt[,-c(1, ncol(wrt))], by = list(wrt$year), FUN = 'sum')
+
+
+```
+
+```{r valmillon}
+
+val_millon <- lapply(1:length(ensth_list), function(i){
+  # Balance files
+  ensthi <- ensth_list[i]
+  blc_dec1 <- read.table(blcFile_dec1[i])
+  
+  # VALUE
+  AD_N <- AD_for_value('N', blc_dec1, ensthi)
+  AD_F <- AD_for_value('F', blc_dec1, ensthi)
+  AD_P <- AD_for_value('P', blc_dec1, ensthi)
+  
+  # Calculate yield
+  yield_N <- calcYield('N', AD_N, ensthi)
+  yield_F <- calcYield('F', AD_F, ensthi)
+  yield_P <- calcYield('P', AD_P, ensthi)
+
+  # Calculate value
+  val_N <- calcVal('N', AD_N, yield_N, ensthi)
+  val_F <- calcVal('F', AD_F, yield_F, ensthi)
+  val_P <- calcVal('P', AD_P, yield_P, ensthi)
+  
+  val_millon <- cbind(val_P, val_N, val_F)/1000000
+  colSums(val_millon)
+  return(val_millon)
+})
+
+
+# Val_million from file
+val_P <- read.table(file.path(folder, 'val_P.txt'), col.names = 'P')
+val_N <- read.table(file.path(folder, 'val_N.txt'), col.names = 'N')
+val_F <- lapply(ensth_list, function(i) read.table(file.path(folder, paste0('val_F_', i, '.txt')), col.names =  'F'))
+
+val_millon <- lapply(val_F, function(i) cbind(val_P, val_N, i)/1000000)
+
+```
+
+```{r}
+
+# crops and benefit per risk aversion level
+
+crop_files <- list.files(folder, pattern = "crops_", full = T)
+yield_files <- list.files(folder, pattern = "yield_", full = T)
+
+crops <- lapply(crop_files, read.table)
+yields <- lapply(yield_files, read.table, header = T)
+
+scenarios <- gsub("crops_May_", "", basename(crop_files))
+scenarios <- gsub(".txt", "", scenarios)
+
+## total benefit 
+
+bbr <- lapply(1:length(crops), function(i){
+  
+  ci <- crops[[i]]
+  yi <- yields[[i]]
+  
+  # who plants LCM
+  whoLCM <- data.frame(
+  R1 = ifelse(ci$LCM > (T1 * (R2 + R3) + 0.001), T1 * R1, 0),
+  R2 = ifelse(ci$LCM > (T1 * R3), T1 * R2, 0),
+  R3 = ifelse(ci$LCM > 0, T1 * R3, 0))
+whoLCM$total <- rowSums(whoLCM)
+
+# who plants SCB 
+# (T2 always plant SCB, that is represented in column SCB2 for crops but all SCB is aggregated in the yield files - 
+# therefore T2 added to total)
+whoSCB <- data.frame(
+  R1 = ifelse(ci$SCB > (T1 * R2) + 0.001, T1 * R1, 0),
+  R2 = ifelse(ci$SCB > 0, T1 * R2, 0))
+whoSCB$total <- rowSums(whoSCB) + T2
+
+table(whoLCM$R1!=0)
+table(whoSCB$R1!=0)
+table(ci$LCB!=0)
+table(ci$FAL1>0.34)
+
+# benefit
+
+## R1: 
+bLCB1 <- yi$LCB * valBarley - ci$LCB * cosBarley * total_area_third
+bSCB1 <- yi$SCB * whoSCB$R1/whoSCB$total * valBarley - cosBarley * whoSCB$R1 * total_area_third
+bLCM1 <- yi$LCM * whoLCM$R1/whoLCM$total * valMaize - cosMaize * whoLCM$R1 * total_area_third
+bR1 <- bLCB1 + ifelse(is.na(bSCB1), 0, bSCB1) + ifelse(is.na(bLCM1), 0, bLCM1) 
+## R2:
+bSCB2 <- yi$SCB * whoSCB$R2/whoSCB$total * valBarley - cosBarley * whoSCB$R2 * total_area_third
+bLCM2 <- yi$LCM * whoLCM$R2/whoLCM$total * valMaize - cosMaize * whoLCM$R2 * total_area_third
+bR2 <- ifelse(is.na(bSCB2), 0, bSCB2) + ifelse(is.na(bLCM2), 0, bLCM2)
+## R3:
+bLCM3 <- yi$LCM * whoLCM$R3/whoLCM$total * valMaize - cosMaize * whoLCM$R3 * total_area_third
+bR3 <- ifelse(is.na(bLCM3), 0, bLCM3)
+## T2
+bSCB <- yi$SCB * T2/whoSCB$total * valBarley - ci$SCB2 * cosBarley * total_area_third
+bSCM <- yi$SCM * valMaize - ci$SCM * cosMaize * total_area_third 
+bT2 <-bSCB + bSCM
+
+# save full table as file
+year <- (startYear + 1):endYear
+vtable <- data.frame(bLCB1, bSCB1, bLCM1, bSCB2, bLCM2, bLCM3, bR1, bR2, bR3, bT2, totalT1 = bR1 + bR2 + bR3)/1000000
+vtable$total <- vtable$totalT1 + bT2/1000000
+
+# table to return
+rtable <- data.frame(bR1, bR2, bR3, bT2)/1000000
+rtable <- data.frame(year, scenario = rep(scenarios[[i]], length(year)), rtable)
+
+write.table(rtable, file.path(folder, paste0("BenefitPerFarmerType_", scenarios[[i]], ".txt")))
+
+return(rtable)
+})
+
+
+```
+
+
+# PLOTS
+
+```{r plotAccuInflow_Fig3}
+
+# Plot of accumulated inflow (+extrapolation and forecast) at decision points
+
+# Table 1: Demand (PI) Nov-Apr decisions
+DPI <- read.table(file.path(folder, paste0("output_WB_PI.txt"))) # column totalD
+DPI2 <- data.frame(hyear = as.numeric(DPI$year), demand = as.numeric(DPI$totalD))
+DPI2 <- DPI2[DPI2$hyear %in% startYear:endYear,]
+
+# Table 1b: Demand (PI) May decision
+DPIM <- read.table(file.path(folder, paste0('totD_May.txt')), header = T)
+DPIM2 <- data.frame(hyear = as.numeric(DPIM$year), demand = as.numeric(DPIM$totalD))
+DPIM2 <- DPIM2[DPIM2$hyear %in% startYear:endYear,]
+
+# Table 2: accumulated inflows, ensemble inflows and extrapolated final inflows at each decision point
+dat_all <- data.frame(year = as.numeric(AIne1$year), month = substr(AIne1$day, 1, 2), OBS = AIne1$AIh * alloFactor, HE = AIne1$AnEff, ens10 = AIneF_Eff$ens10, ens90 = AIneF_Eff$ens90, ensMean = AIneF_Eff$ensMeanSF)
+
+# Table 2 - selected months
+dat <- dat_all[dat_all$month %in% c('11', '02', '04', '05'),]
+dat$hyear <- ifelse(dat$month == 11, dat$year + 1, dat$year)
+# add final month with actual value (data for 30th Sep, save it as month 10)
+AIne30 <- AIne[AIne$day == '09-30',]
+AIne30_all <- data.frame(year = as.numeric(AIne30$year), month = '10', OBS = AIne30$AIh * alloFactor, HE = 0, ens10 = 0, ens90 = 0, ensMean = 0, hyear = as.numeric(AIne30$year))
+dat <- rbind(dat, AIne30_all)
+# reorder dat$month so 10 is the first element
+dat$month <- factor(dat$month, levels = c('11', '02', '04', '05', '10'), labels = c('N', 'F', 'A', 'M', 'O'))
+
+# facet plot
+library("reshape2")
+library("ggplot2")
+dat2 <- melt(dat, id.vars = c('year', 'hyear', 'month', 'ens10', 'ens90', 'ensMean'))
+
+# October value terciles for background colour
+O3 <- data.frame(hyear = unique(dat2$hyear), month = 'O', value = dat2[dat2$month == 'O' & dat2$variable == 'OBS', 'value'] )
+valO_terc <- quantile(O3$value, c(0, 0.33, 0.66, 1))
+O3$variable <- ifelse(O3$value < valO_terc[2], 'Dry', 'Normal')
+O3$variable[O3$value > valO_terc[3]] <- 'Wet'
+O3$variable <- as.factor(O3$variable)
+O3$class3 <- O3$variable
+
+# (version without background colour)
+p <- ggplot(dat2, aes(x = month, y = value, fill = variable))+
+  geom_hline(data = O3, aes(yintercept = 600, colour = class3), show.legend = F, linewidth = 2) +
+  geom_col(data = dat2[dat2$variable == 'HE',]) +
+  geom_col(data = dat2[dat2$variable == 'OBS',]) +
+  scale_fill_manual(values = c('cornflowerblue','navyblue')) +
+  geom_point(aes(y=ensMean, alpha = 'SF'), data = dat2[dat2$month %in% c('N', 'F', 'A', 'M'),], show.legend = c(fill = F, alpha = T)) +
+  scale_alpha_manual(values = c('SF' = 1)) +
+  geom_errorbar(aes(ymin = ens10, ymax = ens90), data = dat2[dat2$month %in% c('N', 'F', 'A', 'M'),]) +
+  geom_hline(data = DPI2, aes(yintercept = demand, colour = 'D1'), linetype = 'dashed') +
+  geom_hline(data = DPIM2, aes(yintercept = demand, colour = 'D2'), linetype = 'dashed') +
+  scale_colour_manual(values = c("darkolivegreen1", "coral", 'darkgoldenrod1', 'chartreuse3', "hotpink4")) +
+  facet_wrap(.~hyear) +
+  labs(y = 'Volume [hm3]', color = 'Demand') +
+  guides(fill = guide_legend(title = 'Accum. inflow'), alpha = guide_legend(title = 'Accum. inflow')) 
+p
+
+outfile <- file.path(plots_folder, 'accumInflow_facet.pdf')
+pdf(outfile)
+print(p)
+dev.off()
+
+```
+
+```{r plotDecisions_Fig4}
+
+# Plot of decisions
+# Uses October terciles (O3) defined in previous block
+library(ggplot2)
+library(reshape2)
+
+crop_files <- list.files(folder, pattern = 'crops_May.*', full = T)
+nams <- basename(crop_files)
+nams <- gsub('crops_May_', '', nams)
+nams <- gsub('.txt', '', nams)
+nams <- gsub('_ens', '', nams)
+nams <- gsub('SF', '', nams)
+nams <- gsub('ean', '', nams)
+
+crops_dat <- do.call(rbind, lapply(1:length(crop_files), function(i) {
+  a <- read.table(crop_files[i])
+  a$information <- nams[i]
+  a$year <- rownames(a)
+  return(a)
+  }))
+
+colnames(crops_dat) <- gsub('D', '', colnames(crops_dat))
+dat <- melt(crops_dat, id.vars = c('year', colnames(crops_dat)[1:8], 'information'))
+colnames(dat)[colnames(dat) == "year"] <- "hyear"
+
+# add fields for empty row that will be used to add the colour line according to the year type (wet, normal, dry)
+dat0 <- dat[dat$variable == "Nov", ]
+dat0$variable <- "Emp"
+dat <- rbind(dat, dat0)
+
+# convert to factors
+dat$variable <- factor(dat$variable, levels = c('May', 'Apr', 'Feb', 'Nov', 'Emp'), labels = c('M', 'A', 'F', 'N', ''))
+dat$information <- factor(dat$information, levels = c('P', 'N', 'F10', 'F30', 'F50', 'F70', 'F90', 'FM', 'F_p'), labels = c('P', 'HE', 'F10', 'F30', 'F50', 'F70', 'F90', 'FM', 'Fp'))
+
+# Curtailments
+AD_files <- list.files(folder, pattern = 'AD_.*', full = T)
+
+AD_dat <- do.call(rbind, lapply(1:length(AD_files), function(i) {
+  a <- read.table(AD_files[i], header = T)
+  a$information <- nams[i]
+  return(a)
+}))
+
+# use proportion of crops that can't be supported (1-p2X) for plot
+nowater <- data.frame(hyear = AD_dat$year, LCM = 1-AD_dat$p2LCM, SCM = 1 - AD_dat$p2SCM, information = AD_dat$information)
+nowater2 <- melt(nowater, id.vars=c('hyear', 'information'))
+nowater2$information <- factor(nowater2$information, levels = c('P', 'N', 'F10', 'F30', 'F50', 'F70', 'F90', 'FM', 'F_p'), labels = c('P', 'HE', 'F10', 'F30', 'F50', 'F70', 'F90', 'FM', 'Fp'))
+colnames(nowater2) <- c('hyear', 'information', 'crop', 'reduction')
+
+# Facet plot
+p3 <- ggplot(dat, aes(x = information, y = variable)) +
+  geom_tile(aes(fill = factor(value)), colour = 1) +
+  scale_fill_manual(values = c('salmon2', 'lightcyan3')) +
+  geom_point(data = nowater2, aes(x = information, y = 'M', shape = crop, size = reduction, stroke = 1.1)) +
+  scale_shape_manual(values = c(4, 1)) + 
+  geom_hline(data = O3, aes(yintercept = "", colour = class3), show.legend = F, linewidth = 4.5) +
+  scale_colour_manual(values = c('darkgoldenrod1', 'chartreuse3', "hotpink4")) +
+  guides(fill = guide_legend(title = 'decision')) +
+  theme(axis.title.y = element_blank(), legend.position = 'top', axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+  facet_wrap(.~hyear)
+
+p3
+
+outfile <- file.path(plots_folder, paste0('decision_facet.pdf'))
+pdf(outfile)
+print(p3)
+dev.off()
+
+```
+
+```{r plotBenefitByYear_Fig5}
+
+library("reshape2")
+library("ggplot2")
+
+# Val_million from file (requires O3 defined for Fig4)
+val_P <- read.table(file.path(folder, 'val_P.txt'), col.names = 'P')
+val_N <- read.table(file.path(folder, 'val_N.txt'), col.names = 'N')
+val_F <- lapply(ensth_list, function(i) read.table(file.path(folder, paste0('val_F_', i, '.txt')), col.names =  'F'))
+
+val_millon <- lapply(val_F, function(i) cbind(val_P, val_N, i)/1000000)
+
+
+# plot facet (all thresholds)
+valF <- do.call(cbind, val_F)/1000000
+names <- gsub('ens', '', ensth_list)
+names <- gsub('SF', '', names)
+names <- gsub('ean', '', names)
+colnames(valF) <- paste0('F', names)
+
+vals <- cbind(val_millon[[1]][, c('P', 'N')], valF)
+vals$year <- rownames(vals)
+colnames(vals) <- gsub('N', 'HE', colnames(vals))
+
+dat2 <- melt(vals)
+colnames(dat2)[1] <- "hyear"
+
+
+p1 <- ggplot(dat2, aes(x = variable, y = value, group = hyear, fill = variable))+
+  geom_col(position = 'dodge', width = 0.7)+
+  scale_fill_manual(name = 'information', values = c('grey60', 'grey40', '#FC717F', '#E7861B', '#A3A500', '#00B81F', 'darkgreen', '#00B8E5', 'navyblue'))+
+  facet_wrap(.~hyear) + 
+  geom_hline(data = O3, aes(yintercept = 50, colour = class3), show.legend = F, linewidth = 2) +
+  scale_colour_manual(values = c('darkgoldenrod1', 'chartreuse3', "hotpink4")) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.x = element_blank(), panel.background = element_blank())+
+  ylab('Total benefit [million euro]')
+p1
+
+outfile <- file.path(plots_folder, 'information_facet.pdf')
+pdf(outfile)
+print(p1)
+dev.off()
+
+```
+
+```{r plotTotalBenefit_byfarmers_Fig7}
+
+# open each file, sum the values and save in a table with columns for information and farmer types
+files <- list.files(folder, full = T, pattern = 'BenefitPerFarmerType')
+
+library(stringr)
+TB <- do.call(rbind, lapply(files, function(x){
+  dat <- read.table(x)
+  totdat <- colSums(dat[, 3:6])
+  farmers <- str_sub(x, -5, -5)
+  info <- dat$scenario[1]
+  return(c(info, farmers, totdat))
+}))
+
+# rename information labels
+TB[,1] <- gsub('_ens', '', TB[,1])
+TB[,1] <- gsub('eanSF', '', TB[,1])
+TB[,1] <- gsub('_SF', '', TB[,1])
+TB[,1] <- gsub('N', 'HE', TB[,1])
+
+# convert columns with values to numeric and labels to factor
+columns <-colnames(TB)[3:6]
+numCols <- do.call(cbind, lapply(columns, function(x) as.numeric(TB[, x])))
+colnames(numCols) <- columns
+TB <- data.frame(information = factor(TB[,1], levels = c("P", "HE", "F10", "F30", "F50", "F70", "F90", "FM", "Fp")), decision = TB[,2], numCols)
+colnames(TB) <- gsub("b", "", colnames(TB))
+
+# Use R1 P and Fp for R2 and R3 too as all would follow the R1 options with perfect information
+TBu <- TB
+TBu$R2[TBu$information == "P"] <- TB$R1[TB$information == "P"]
+TBu$R3[TBu$information == "P"] <- TB$R1[TB$information == "P"]
+TBu$R2[TBu$information == "Fp"] <- TB$R1[TB$information == "Fp"]
+TBu$R3[TBu$information == "Fp"] <- TB$R1[TB$information == "Fp"]
+
+TB2 <- melt(TBu)
+# add column with the value per hectare
+TB2$value_ha <- rep(0, dim(TB2)[1])
+TB2$value_ha[TB2$variable == "R1"] <- TB2$value[TB2$variable == "R1"]/(total_area_third * T1 * R1)*1000000
+TB2$value_ha[TB2$variable == "R2"] <- TB2$value[TB2$variable == "R2"]/(total_area_third * T1 * R2)*1000000
+TB2$value_ha[TB2$variable == "R3"] <- TB2$value[TB2$variable == "R3"]/(total_area_third * T1 * R3)*1000000
+TB2$value_ha[TB2$variable == "T2"] <- TB2$value[TB2$variable == "T2"]/(total_area_third * T2)*1000000
+
+# facet plot (facets for farmer types)
+library(ggplot2)
+
+pt2 <- ggplot(TB2, aes(x = information, y = value_ha, group = variable, fill = information)) +
+  geom_col(position = 'dodge', width = 0.7)+
+  scale_fill_manual(name = 'information', values = c('grey60', 'grey40', '#FC717F', '#E7861B', '#A3A500', '#00B81F', 'darkgreen', '#00B8E5', 'navyblue'))+
+  facet_wrap(.~variable, nrow = 1) +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.x = element_blank(), 
+        panel.background = element_blank())+
+  ylab('Benefit per hectare [euro]')
+  
+# save plot
+outfile <- file.path(plots_folder, paste0('totalbenefit_byfarmers_', run, '.pdf'))
+pdf(outfile, width = 7, height = 3)
+print(pt2)
+dev.off()
+
+# save table
+outfilet <- file.path(folder, paste0('totalbenefit_byfarmers_', run, '_', runVal, '.txt'))
+write.table(TB2, outfilet)
+
+```
+
+```{r facetValue-by farmer_Fig8}
+
+# version to compare runs with different value (runVal)
+
+library("ggpattern")
+
+# Relative value
+TB <- TBu 
+
+Ni <- which(TB$information == "HE")
+Pi <- which(TB$information == "P")
+Fi <- grep("F", TB$information)
+
+# Calculate relative value as (F-HE)/(P-HE)
+rv <- do.call(rbind, lapply(Fi, function(i){
+     round((TB[i, 3:6] - TB[Ni, 3:6])/(TB[Pi, 3:6] - TB[Ni, 3:6]), 6)}))
+
+rv <- data.frame(information = TB[Fi,1], rv)
+colnames(rv) <- gsub("b", "", colnames(rv))
+rv2 <- melt(rv)
+
+# save file
+outfilet <- file.path(folder, paste0('RV_byfarmers_', run, '_', runVal, '.txt'))
+write.table(rv2, outfilet)
+
+
+valsF <- list.files(folder, full = T, pattern = "benefit") 
+rvsF <- list.files(folder, full = T, pattern = "RV")
+
+valsN <- gsub(paste0('totalbenefit_byfarmers_', run, '_'), "", basename(valsF))
+valsN <- gsub(".txt", "", valsN)
+
+vals <- do.call(rbind, lapply(1:length(valsF), function(i){
+  a <- read.table(valsF[i])
+  a$valRun <- valsN[i]
+  return(a)}))
+vals$valRun <- factor(vals$valRun, levels = c("bsl", "M2", "B2"))
+vals$information <- factor(vals$information, levels = c("P", "HE", "F10", "F30", "F50", "F70", "F90", "FM", "Fp"))
+
+rvs <- do.call(rbind, lapply(1:length(rvsF), function(i){
+  a <- read.table(rvsF[i])
+  a$valRun <- valsN[i]
+  return(a)}))
+rvs$valRun <- factor(rvs$valRun, levels = c("bsl", "M2", "B2"))
+
+# facet relative value - combined in single row (Fig 8)
+ptrv2 <- ggplot(rvs, x=value, y=factor(valRun, levels = c("bsl", "M2", "B2"), ordered =T), aes(x = information, y = value, group = variable, fill = information)) +
+  geom_col_pattern(position = "dodge_2", aes(pattern = valRun), colour = "black", pattern_density = 0.1, pattern_spacing = 0.02)+
+  coord_cartesian(ylim=c(-2,2))+
+  scale_fill_manual(name = 'information', values = c('#FC717F', '#E7861B', '#A3A500', '#00B81F', 'darkgreen', '#00B8E5', 'dodgerblue4'))+
+  scale_pattern_manual(values = c("none", "stripe", "circle"))+
+  facet_grid(~variable)+
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.x = element_blank(), 
+        panel.background = element_blank(), text=element_text(size=16)) +
+  ylab('Relative value')+
+  labs(pattern = guide_legend(title = "value scenario"))+
+  guides(fill=guide_legend(override.aes=list(pattern="none")))
+
+outfile <- file.path(plots_folder, 'Fig8_relativeValue.pdf')
+pdf(outfile, width = 10, height = 4)
+print(ptrv2)
+dev.off()
+
+```

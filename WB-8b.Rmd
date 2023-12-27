@@ -1,0 +1,286 @@
+---
+title: "water balance"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r Input}
+
+run <- 'run2'
+LCM_prop <- 0.35 # proportion of single-crop farmers 
+
+wd <- getwd()
+folder <- file.path(wd, run)
+if(!exists(folder)){dir.create(folder)}
+source(file.path("./", 'functions_v8.r'))
+
+# Parameters & files
+
+startDate <- '1984-10-01'
+endDate <- '2017-09-30'
+alloFactor <- 0.55
+FDdy <- c("11-01", "02-01", "04-01")
+crops_var <- c("LCB", "SCB", "LCM", "SCM")
+crops_all <- c("LCB", "SCB", "LCM", "SCM", "ALF", "PCH")
+total_area <- 51747#ha
+total_area_third <- total_area/3
+lead = 7
+
+infolder <- file.path(wd, "input_files")
+wrtFile <- file.path(infolder, "table_wr.txt")
+reservoirInflow <- file.path(infolder, "9013_9047_accuvol.txt")
+percentilesFile <- file.path(infolder, "percentiles_9013_9047_accuvol.txt")
+SFforecastFile <- file.path(infolder, "SFprediction_ARIMA_v3.csv") 
+
+startYear <- as.numeric(substr(startDate, 1, 4))
+endYear <- as.numeric(substr(endDate, 1, 4))
+hyears <- if(substr(startYear, 6, 7) %in% 1:9){hyear <- startYear:endYear}else{(startYear + 1):endYear}
+
+```
+
+```{r open_data}
+
+# Open data
+
+## open demand file (water requirements for each crop and year) and extract demands for all crops (values in mm)
+wrt <- read.table(wrtFile, header = T)
+cols <- which(colnames(wrt) %in% crops_all)
+wrt <- wrt[, c(1, cols)]
+wrt$dates <- as.Date(wrt$dates)
+wrt$year <- as.numeric(substr(wrt$dates, 1, 4))
+
+## total demand per year (per hectare)
+wrt_year <- aggregate(wrt[,-c(1, ncol(wrt))], by = list(wrt$year), FUN = 'sum')
+
+```
+
+
+# 1. Water balance
+
+### Perfect information
+Determine for each of the years if there is enough water to plant maize or not. This is based on the single crop decision (preference LCM) in decision a and in the double crop decision (SCM after rainfed SCB)
+
+1) Estimate total demand for variable crop (1/3 of the area, the other 2/3 are alfalfa and peach) 
+  (a) LCM for single-crop farmers
+  (b) SCM for double-crop farmers
+2) Estimate availability
+3) Compare maximum demand (1) and availability (2)
+
+```{r}
+
+tot_demand <- function(LCM_prop, SCM_prop){
+  # This function calculates the total demand for the planted area [in hm3]
+  
+  # The variable crop surface (1/3 of total crop area) can be planted with LCM, SCM or rainfed crops. Maximum area planted with LCM or SCM depends on the proportion of each type of farmer.
+  
+  wrt_area <- cbind(year = wrt_year[,1], wrt_year[,-1] * total_area_third * 10^-5)
+  wrt_area$LCM <- wrt_area$LCM * LCM_prop
+  wrt_area$SCM <- wrt_area$SCM * SCM_prop
+
+  wrt_area$totalD <- wrt_area$ALF + wrt_area$PCH + wrt_area$LCM + wrt_area$SCM
+  return(wrt_area)
+}
+
+pinfo <- function(LCM_prop){
+  
+  # 1) TOTAL DEMAND
+  
+  SCM_prop <- 1 - LCM_prop
+  wrt_area <- tot_demand(LCM_prop, SCM_prop)
+
+  # 2) TOTAL AVAILABILITY
+
+  # Availability at the end of the season (considering allocation factor)
+  inflow <- read.table(reservoirInflow, header = T)
+  A <- inflow[inflow$day==30 & inflow$month==9,]
+  A$AnEff <- A$accu_vol * alloFactor
+
+
+  # 3) COMPARISON
+  DA <- merge(wrt_area, A[A$year %in% wrt_area$year,])
+  DA$balance <- DA$AnEff - DA$totalD
+  DA <- DA[which(DA$hyear == startYear + 1):which(DA$hyear == endYear),]
+  
+  # Save file
+  outfile <- file.path(folder, paste0('output_WB_PI.txt'))
+  write.table(DA, outfile)
+  
+  return(DA)
+}
+
+DA_pid <- pinfo(LCM_prop)
+
+```
+
+
+### Informed decisions (percentiles)
+
+Balance at the end of the season based on percentiles
+Perfect information of water requirements
+
+```{r informed_reservoir}
+
+resN <- function(DA){
+  # Availability at decision dates 
+  AIne <- availability(reservoirInflow, percentilesFile, startDate, endDate, write.file = T, outputReturn = "all")
+  # Subset for the first days of the month
+  AIne1 <- AIne[substr(AIne$date, 9, 10) == '01', ]
+  # Extrapolated availability at the end of the season considering allocation factor
+  AIne1$AnEff <- AIne1$AIne * alloFactor
+
+  # Total demand (including ALF & PCH)
+  Dtot <- DA[, c('year', 'totalD')]
+
+  # Comparison
+  resN <- compareAD('AnEff', AIne1, Dtot)
+
+  resN[, c('Nov', 'Feb', 'Apr', 'Sep')]
+
+  return(resN)
+} 
+
+resN_d <- resN(DA_pid)
+
+```
+
+
+# Informed decisions (forecast)
+
+Balance at the end of the season based on probabilistic forecast of inflow to the reservoir (7 month lead) and percentiles
+Perfect information for demand.
+
+Different percentiles of the forecast ensemble extracted, in addition to the ensemble mean, to consider possible over or underestimation
+
+```{r}
+
+resF <- function(DA, seq_percentiles = seq(0.1, 0.9, 0.1)){
+  
+  # availability based on forecast & historic percentiles (gives accumulated volume after lead time)
+  AIneF <- availabilityF(reservoirInflow, percentilesFile, SFforecastFile, startDate, endDate, write.file = T, outputReturn = "AnF")
+  AIneF_Eff <- data.frame(dates = AIneF[, 1], AIneF[, -1] * alloFactor)
+  ensPercs <- t(apply(AIneF_Eff[, -1], 1, quantile, seq_percentiles))
+  colnames(ensPercs) <- c(paste0('ens', seq_percentiles * 100))
+  AIneF_Eff <- data.frame(AIneF_Eff, ensPercs)
+
+  # Total demand (including ALF & PCH)
+  Dtot <- DA[, c('year', 'totalD')]
+
+  # Comparison
+  listNames <- c('SFp', 'ensMeanSF', colnames(ensPercs))
+  resF_full <- lapply(listNames, compareAD, AIneF_Eff, Dtot)
+
+  resF <- lapply(resF_full, subset, select = c('Nov', 'Feb', 'Apr', 'May', 'Sep'))
+  names(resF) <- listNames
+  return(resF)
+
+}
+
+resF_d <- resF(DA_pid)
+
+```
+
+```{r}
+
+# Save balance to file
+
+res2File <- function(resFname, DA, resN, resF_list){
+  
+  resF <- resF_list[[resFname]]
+  
+  dat <- data.frame(PI_balance = DA$balance, N_Nov = resN[, 'Nov'], N_Feb = resN[, 'Feb'], N_Apr = resN[, 'Apr'], N_May = resN[, 'May'], F_Nov = c(resF[, 'Nov'], NA), F_Feb = c(resF[, 'Feb'], NA), F_Apr = c(resF[,'Apr'], NA), F_May = c(resF[, 'May'], NA))
+  
+  outfile <- file.path(folder, paste0('output_WB_', resFname, '.txt'))
+  write.table(dat, outfile)}
+
+lapply(names(resF_d), res2File, DA_pid, resN_d, resF_d)
+
+```
+
+```{r plot}
+
+# Combine tables
+
+plot_facets <- function(){
+  
+  ensfiles <- list.files(folder, pattern = paste0('output_WB_ens.[0-9]'), full = T)
+  meanfile <- list.files(folder, pattern = paste0('output_WB_ensMeanSF'), full = T)
+  files <- c(meanfile, ensfiles)
+
+
+  ## ggplot
+  library(ggplot2)
+  library(reshape2)
+
+
+  ### get PI and N columns and convert to long data
+  datPN <- read.table(files[1])
+  datPN <- datPN[, grep('N_|PI', colnames(datPN))]
+  colnames(datPN) <- gsub('_Nov', 11, colnames(datPN))
+  colnames(datPN) <- gsub('_Feb', 2, colnames(datPN))
+  colnames(datPN) <- gsub('_Apr', 4, colnames(datPN))
+  colnames(datPN) <- gsub('_May', 5, colnames(datPN))
+  colnames(datPN) <- gsub('_balance', '', colnames(datPN))
+  cnames <- colnames(datPN)
+  ldatPN <- melt(as.matrix(datPN))
+  colnames(ldatPN) <- c('year', 'information', 'balance')
+  ldatPN$level <- ifelse(ldatPN$information == 'PI', 'PI', 'N')
+
+  ### get the F columns and convert to long data
+  to_long <- function(f){
+    dat <- read.table(f)
+    dat1 <- dat[, grep('F_', colnames(dat))]
+    if(length(colnames(dat1)) == 3) {
+      colnames(dat1) <- c('F11', 'F2', 'F4')
+      ldat <- melt(as.matrix(dat1))
+      colnames(ldat) <- c('year', 'information', 'balance')
+    }
+    if(length(colnames(dat1)) == 0){
+      ldat <- data.frame(year = rownames(dat), information = rep('F5', length(dat1)), balance = dat1)
+    }
+    if(length(colnames(dat1)) == 4) {
+      colnames(dat1) <- c('F11', 'F2', 'F4', 'F5')
+      ldat <- melt(as.matrix(dat1))
+      colnames(ldat) <- c('year', 'information', 'balance')
+    }
+    ldat$year <- factor(ldat$year)
+    level <- gsub('.*WB_', '', f)
+    level <- gsub('.txt', '', level)
+    ldat$level <- level
+    return(ldat)
+  }
+
+  ldatF <- lapply(files, to_long)
+  ldatF <- do.call(rbind, ldatF)
+
+  ### combine
+
+  ldats <- rbind(ldatPN, ldatF)
+  ldats$level <- factor(ldats$level, levels = c('PI', "N", unique(ldatF$level)))
+  ldats$year <- factor(ldats$year, levels = rev(unique(ldats$year)))
+
+
+  ### palette and breaks
+  paletteLength <- 50
+  paleta <- colorRampPalette(c("indianred1", "white", "darkblue"))(paletteLength)
+  minScale <- signif(min(ldats$balance, na.rm = T) - 4, 2)
+  maxScale <- signif(max(ldats$balance, na.rm = T) + 4, 2)
+  myBreaks <- c(round(seq(minScale, 0, length.out = ceiling(paletteLength/2) + 1)), 
+              round(seq(maxScale/paletteLength, maxScale, length.out=floor(paletteLength/2))))
+
+  ### plot
+  zp1 <- ggplot(ldats, aes(x = information, y = year, fill = balance)) +
+  geom_tile() +
+  scale_fill_gradientn(colours = paleta, breaks = myBreaks[c(2, 50)]) +
+  scale_x_discrete(position = 'top') +
+  theme_bw() +
+  facet_grid(. ~ level, scales = 'free')
+
+  print(zp1)
+}
+
+plot_facets()
+
+```
