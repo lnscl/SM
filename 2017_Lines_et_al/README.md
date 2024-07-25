@@ -1,0 +1,3 @@
+This folder contains files associated to the paper: Linés, C., Werner, M., and Bastiaanssen, W.: The predictability of reported drought events and impacts in the Ebro Basin using six different remote sensing data sets, Hydrol. Earth Syst. Sci., 21, 4747–4765, https://doi.org/10.5194/hess-21-4747-2017, 2017.
+
+impacts.xlsx: dataset of drought impacts in the Ebro basin derived from the review of newspaper records from the regional newspaper El periodico de Aragon. The articles reviewed cover the peiod Sep 2001 - Dec 2012 and were available online at the time of the review at www.elperiodicodearagon. All news items containing the word “drought” were reviewed and relevant records of drought events and impacts referring to the area of study were added to this table.
