@@ -1,4 +1,5 @@
 This folder contains the code files associated to the following paper submitted for review: Lines and Werner: How useful are seasonal forecasts for farmers facing drought? A user-based modelling approach
+(Files updated after resubmission)
 
 The code used for the analysis described in the paper consists of three files:
 
