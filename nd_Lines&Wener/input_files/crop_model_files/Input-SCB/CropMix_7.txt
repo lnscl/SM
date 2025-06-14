@@ -1,0 +1,10 @@
+%% ---------- Crop mix options for AquaCropOS ---------- %%
+%% Number of crop options %%
+1
+%% Specified planting calendar %%
+N
+%% Crop rotation filename %%
+CropRotation_7.txt
+%% Information about each crop type %%
+%% CropType, CropFilename, IrrigationFilename %%
+Barley, Crop_7b.txt, IrrigationManagement_6.txt

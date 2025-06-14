@@ -6,7 +6,7 @@ Weather_e.txt
 %% C02 Concentration Time-Series Filename %%
 MaunaLoaCO2.txt
 %% Crop Parameters Filename %%
-CropMix_7c.txt
+CropMix_7.txt
 %% Soil Parameters Filename %%
 Soil.txt
 %% Field Management Filename %%
@@ -16,6 +16,6 @@ InitialWaterContent.txt
 %% Groundwater Table Filename %%
 WaterTable.txt
 %% Output Filename %%
-Output_7e
+Output_7g
 %% Write daily outputs ('Y' or 'N') %%
 Y
