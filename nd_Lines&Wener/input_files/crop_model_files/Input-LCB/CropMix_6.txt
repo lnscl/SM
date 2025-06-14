@@ -7,4 +7,4 @@ N
 CropRotation_6c.txt
 %% Information about each crop type %%
 %% CropType, CropFilename, IrrigationFilename %%
-Barley, Crop_6.txt, IrrigationManagement_6c.txt
+Barley, Crop_6b.txt, IrrigationManagement_6.txt

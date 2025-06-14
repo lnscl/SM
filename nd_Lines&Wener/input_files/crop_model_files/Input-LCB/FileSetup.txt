@@ -16,6 +16,6 @@ InitialWaterContent.txt
 %% Groundwater Table Filename %%
 WaterTable.txt
 %% Output Filename %%
-Output_6e
+Output_6f
 %% Write daily outputs ('Y' or 'N') %%
 Y
