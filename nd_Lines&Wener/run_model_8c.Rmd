@@ -16,7 +16,7 @@ Changes to the model from the version used for Lines et al 2018 (https://doi.org
 
 # INPUT
 
-run <- 'run1'
+run <- 'run2a'
 
 ensth_list <- c('ens10', 'ens30', 'ens50', 'ens70', 'ens90', 'ensMeanSF', 'SFp')
 
@@ -24,9 +24,9 @@ ensth_list <- c('ens10', 'ens30', 'ens50', 'ens70', 'ens90', 'ensMeanSF', 'SFp')
 T1 <- 0.35 #35% single-crop farmers
 T2 <- 1- T1
 
-R1 <- 1/3
-R2 <- 1/3
-R3 <- 1/3
+RL <- 1/3
+RM <- 1/3
+RH <- 1/3
 
 # area: Area that can be irrigated from only from Barasona (Area zona Alta)
 # p.alf & p.woo: Crop proportion in the area
@@ -38,10 +38,10 @@ alloFactor <- 0.55
 crops_all <- c("LCB", "SCB", "LCM", "SCM", "ALF", "PCH")
 crops_var <- c("LCB", "SCB", "LCM", "SCM")
 
-valBarley <- 191 #euro/1000kg - with support.
-valMaize <- 181 #euro/1000kg - with support.
-cosBarley <- 400 #euro/ha.
-cosMaize <- 1438 #euro/ha.
+valBarley <- 200 #euro/1000kg - with support.#190
+valMaize <- 225 #euro/1000kg - with support. #181
+cosBarley <- 400 #euro/ha.#400
+cosMaize <- 1438 #euro/ha.#1438
 runVal <- 'bsl' # file name string for runs with value variation (e.g bsl, B2, M2)
 
 # dates
@@ -174,38 +174,38 @@ bbr <- lapply(1:length(crops), function(i){
   
   # who plants LCM
   whoLCM <- data.frame(
-  R1 = ifelse(ci$LCM > (T1 * (R2 + R3) + 0.001), T1 * R1, 0),
-  R2 = ifelse(ci$LCM > (T1 * R3), T1 * R2, 0),
-  R3 = ifelse(ci$LCM > 0, T1 * R3, 0))
+  RL = ifelse(ci$LCM > (T1 * (RM + RH) + 0.001), T1 * RL, 0),
+  RM = ifelse(ci$LCM > (T1 * RH), T1 * RM, 0),
+  RH = ifelse(ci$LCM > 0, T1 * RH, 0))
 whoLCM$total <- rowSums(whoLCM)
 
 # who plants SCB 
 # (T2 always plant SCB, that is represented in column SCB2 for crops but all SCB is aggregated in the yield files - 
 # therefore T2 added to total)
 whoSCB <- data.frame(
-  R1 = ifelse(ci$SCB > (T1 * R2) + 0.001, T1 * R1, 0),
-  R2 = ifelse(ci$SCB > 0, T1 * R2, 0))
+  RL = ifelse(ci$SCB > (T1 * RM) + 0.001, T1 * RL, 0),
+  RM = ifelse(ci$SCB > 0, T1 * RM, 0))
 whoSCB$total <- rowSums(whoSCB) + T2
 
-table(whoLCM$R1!=0)
-table(whoSCB$R1!=0)
+table(whoLCM$RL!=0)
+table(whoSCB$RL!=0)
 table(ci$LCB!=0)
 table(ci$FAL1>0.34)
 
 # benefit
 
-## R1: 
+## RL: 
 bLCB1 <- yi$LCB * valBarley - ci$LCB * cosBarley * total_area_third
-bSCB1 <- yi$SCB * whoSCB$R1/whoSCB$total * valBarley - cosBarley * whoSCB$R1 * total_area_third
-bLCM1 <- yi$LCM * whoLCM$R1/whoLCM$total * valMaize - cosMaize * whoLCM$R1 * total_area_third
-bR1 <- bLCB1 + ifelse(is.na(bSCB1), 0, bSCB1) + ifelse(is.na(bLCM1), 0, bLCM1) 
-## R2:
-bSCB2 <- yi$SCB * whoSCB$R2/whoSCB$total * valBarley - cosBarley * whoSCB$R2 * total_area_third
-bLCM2 <- yi$LCM * whoLCM$R2/whoLCM$total * valMaize - cosMaize * whoLCM$R2 * total_area_third
-bR2 <- ifelse(is.na(bSCB2), 0, bSCB2) + ifelse(is.na(bLCM2), 0, bLCM2)
-## R3:
-bLCM3 <- yi$LCM * whoLCM$R3/whoLCM$total * valMaize - cosMaize * whoLCM$R3 * total_area_third
-bR3 <- ifelse(is.na(bLCM3), 0, bLCM3)
+bSCB1 <- yi$SCB * whoSCB$RL/whoSCB$total * valBarley - cosBarley * whoSCB$RL * total_area_third
+bLCM1 <- yi$LCM * whoLCM$RL/whoLCM$total * valMaize - cosMaize * whoLCM$RL * total_area_third
+bRL <- bLCB1 + ifelse(is.na(bSCB1), 0, bSCB1) + ifelse(is.na(bLCM1), 0, bLCM1) 
+## RM:
+bSCB2 <- yi$SCB * whoSCB$RM/whoSCB$total * valBarley - cosBarley * whoSCB$RM * total_area_third
+bLCM2 <- yi$LCM * whoLCM$RM/whoLCM$total * valMaize - cosMaize * whoLCM$RM * total_area_third
+bRM <- ifelse(is.na(bSCB2), 0, bSCB2) + ifelse(is.na(bLCM2), 0, bLCM2)
+## RH:
+bLCM3 <- yi$LCM * whoLCM$RH/whoLCM$total * valMaize - cosMaize * whoLCM$RH * total_area_third
+bRH <- ifelse(is.na(bLCM3), 0, bLCM3)
 ## T2
 bSCB <- yi$SCB * T2/whoSCB$total * valBarley - ci$SCB2 * cosBarley * total_area_third
 bSCM <- yi$SCM * valMaize - ci$SCM * cosMaize * total_area_third 
@@ -213,11 +213,11 @@ bT2 <-bSCB + bSCM
 
 # save full table as file
 year <- (startYear + 1):endYear
-vtable <- data.frame(bLCB1, bSCB1, bLCM1, bSCB2, bLCM2, bLCM3, bR1, bR2, bR3, bT2, totalT1 = bR1 + bR2 + bR3)/1000000
+vtable <- data.frame(bLCB1, bSCB1, bLCM1, bSCB2, bLCM2, bLCM3, bRL, bRM, bRH, bT2, totalT1 = bRL + bRM + bRH)/1000000
 vtable$total <- vtable$totalT1 + bT2/1000000
 
 # table to return
-rtable <- data.frame(bR1, bR2, bR3, bT2)/1000000
+rtable <- data.frame(bRL, bRM, bRH, bT2)/1000000
 rtable <- data.frame(year, scenario = rep(scenarios[[i]], length(year)), rtable)
 
 write.table(rtable, file.path(folder, paste0("BenefitPerFarmerType_", scenarios[[i]], ".txt")))
@@ -438,19 +438,19 @@ colnames(numCols) <- columns
 TB <- data.frame(information = factor(TB[,1], levels = c("P", "HE", "F10", "F30", "F50", "F70", "F90", "FM", "Fp")), decision = TB[,2], numCols)
 colnames(TB) <- gsub("b", "", colnames(TB))
 
-# Use R1 P and Fp for R2 and R3 too as all would follow the R1 options with perfect information
+# Use RL P and Fp for RM and RH too as all would follow the RL options with perfect information
 TBu <- TB
-TBu$R2[TBu$information == "P"] <- TB$R1[TB$information == "P"]
-TBu$R3[TBu$information == "P"] <- TB$R1[TB$information == "P"]
-TBu$R2[TBu$information == "Fp"] <- TB$R1[TB$information == "Fp"]
-TBu$R3[TBu$information == "Fp"] <- TB$R1[TB$information == "Fp"]
+TBu$RM[TBu$information == "P"] <- TB$RL[TB$information == "P"]
+TBu$RH[TBu$information == "P"] <- TB$RL[TB$information == "P"]
+TBu$RM[TBu$information == "Fp"] <- TB$RL[TB$information == "Fp"]
+TBu$RH[TBu$information == "Fp"] <- TB$RL[TB$information == "Fp"]
 
 TB2 <- melt(TBu)
 # add column with the value per hectare
 TB2$value_ha <- rep(0, dim(TB2)[1])
-TB2$value_ha[TB2$variable == "R1"] <- TB2$value[TB2$variable == "R1"]/(total_area_third * T1 * R1)*1000000
-TB2$value_ha[TB2$variable == "R2"] <- TB2$value[TB2$variable == "R2"]/(total_area_third * T1 * R2)*1000000
-TB2$value_ha[TB2$variable == "R3"] <- TB2$value[TB2$variable == "R3"]/(total_area_third * T1 * R3)*1000000
+TB2$value_ha[TB2$variable == "RL"] <- TB2$value[TB2$variable == "RL"]/(total_area_third * T1 * RL)*1000000
+TB2$value_ha[TB2$variable == "RM"] <- TB2$value[TB2$variable == "RM"]/(total_area_third * T1 * RM)*1000000
+TB2$value_ha[TB2$variable == "RH"] <- TB2$value[TB2$variable == "RH"]/(total_area_third * T1 * RH)*1000000
 TB2$value_ha[TB2$variable == "T2"] <- TB2$value[TB2$variable == "T2"]/(total_area_third * T2)*1000000
 
 # facet plot (facets for farmer types)
@@ -479,6 +479,7 @@ write.table(TB2, outfilet)
 ```{r facetValue-by farmer_Fig8}
 
 # version to compare runs with different value (runVal)
+# changed in this versions to 3 lines instead of the columns for each option side by side
 
 library("ggpattern")
 
@@ -522,12 +523,13 @@ rvs <- do.call(rbind, lapply(1:length(rvsF), function(i){
 rvs$valRun <- factor(rvs$valRun, levels = c("bsl", "M2", "B2"))
 
 # facet relative value - combined in single row (Fig 8)
-ptrv2 <- ggplot(rvs, x=value, y=factor(valRun, levels = c("bsl", "M2", "B2"), ordered =T), aes(x = information, y = value, group = variable, fill = information)) +
-  geom_col_pattern(position = "dodge_2", aes(pattern = valRun), colour = "black", pattern_density = 0.1, pattern_spacing = 0.02)+
-  coord_cartesian(ylim=c(-2,2))+
+ptrv2 <- ggplot(rvs, x=value, y=factor(valRun, levels = c("bsl", "M2", "B2"), ordered =T), aes(x = information, y = value, fill = information)) +
+  geom_col()+
+  #geom_col_pattern(aes(pattern = valRun), colour = "black", pattern_density = 0.1, pattern_spacing = 0.02)+
+  #coord_cartesian(ylim=c(-2,2))+
   scale_fill_manual(name = 'information', values = c('#FC717F', '#E7861B', '#A3A500', '#00B81F', 'darkgreen', '#00B8E5', 'dodgerblue4'))+
   scale_pattern_manual(values = c("none", "stripe", "circle"))+
-  facet_grid(~variable)+
+  facet_grid(valRun~factor(variable, levels = c("RL", "RM", "RH", "T2")))+
   theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), axis.title.x = element_blank(), 
         panel.background = element_blank(), text=element_text(size=16)) +
   ylab('Relative value')+

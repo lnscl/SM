@@ -9,7 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r Input}
 
-run <- 'run2'
+run <- 'run3'
 LCM_prop <- 0.35 # proportion of single-crop farmers 
 
 wd <- getwd()
