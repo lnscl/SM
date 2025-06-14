@@ -166,41 +166,41 @@ crops_after_month <- function(year, month, info, blc, ensth, LCMprop){
   } else {
     
     ### FARMER DECISION 1&2 (before irrigation season) ####
-    # Nov: Decision R1 based on Nov balance
-    # (if balance is negative, R1 plant LCB)
+    # Nov: Decision RL based on Nov balance
+    # (if balance is negative, RL plant LCB)
     info_Nov <- ifelse(info == 'P', 'PI_balance', paste0(info, '_Nov'))
     DNov <- ifelse(blc[iyear, info_Nov] < 0, 0, 1)
     
-    if(DNov == 0){crops[1, 'LCB'] <- T1 * R1}
+    if(DNov == 0){crops[1, 'LCB'] <- T1 * RL}
     
-    # Feb: Decisions R1  R2 based on Feb balance
-    # if balance is negative again, R2 plant SCB. If it starts to be negative after it was positive in Nov, R1 plant SCB too
+    # Feb: Decisions RL  RM based on Feb balance
+    # if balance is negative again, RM plant SCB. If it starts to be negative after it was positive in Nov, RL plant SCB too
     info_Feb <- ifelse(info == 'P', 'PI_balance', paste0(info, '_Feb'))
     DFeb <- ifelse(blc[iyear, info_Feb] < 0, 0, 1)
-    if(DNov == 1 & DFeb == 0) {crops[1, 'SCB'] <- T1 * R2 + T1 * R1} 
-    if(DNov == 0 & DFeb == 0) {crops[1, 'SCB'] <- T1 * R2}
+    if(DNov == 1 & DFeb == 0) {crops[1, 'SCB'] <- T1 * RM + T1 * RL} 
+    if(DNov == 0 & DFeb == 0) {crops[1, 'SCB'] <- T1 * RM}
     
     if(month == 3){return(cbind(crops, DNov, DFeb, DApr = NA, DMay = NA))} else {
       ### FARMER DECISION 3 (Apr, no variable irrigated crops yet)
       
-      # Apr: Decisions R1, R2 and R3 based on Apr balance. No maize has been planted yet and perfect information is used for Alf and Peach in all cases, therefore demand doesn't need to be recalculated
-      # if balance is positive after it was positive in Nov and Feb, R1 plant LCM
-      # if balance is positive after it was positive in Feb, R2 plant LCM
-      # if balance is positive, R3 plant LCM
+      # Apr: Decisions RL, RM and RH based on Apr balance. No maize has been planted yet and perfect information is used for Alf and Peach in all cases, therefore demand doesn't need to be recalculated
+      # if balance is positive after it was positive in Nov and Feb, RL plant LCM
+      # if balance is positive after it was positive in Feb, RM plant LCM
+      # if balance is positive, RH plant LCM
       info_Apr <- ifelse(info == 'P', 'PI_balance', paste0(info, '_Apr'))
       DApr <- ifelse(blc[iyear, info_Apr] < 0, 0, 1)
       if(DApr == 1 & DFeb == 1 & DNov == 1){
-        crops[1, 'LCM'] <- T1 * (R1 + R2 + R3)}
+        crops[1, 'LCM'] <- T1 * (RL + RM + RH)}
       if(DApr == 0 & DFeb == 1 & DNov == 1){
-        crops[1, 'FAL1'] <- T1 * (R1 + R2 + R3)}
+        crops[1, 'FAL1'] <- T1 * (RL + RM + RH)}
       if(DApr == 1 & DFeb == 1 & DNov == 0){
-        crops[1, 'LCM'] <- T1 * (R2 + R3)}
+        crops[1, 'LCM'] <- T1 * (RM + RH)}
       if(DApr == 0 & DFeb == 1 & DNov == 0){
-        crops[1, 'FAL1'] <- T1 * (R2 + R3)} 
+        crops[1, 'FAL1'] <- T1 * (RM + RH)} 
       if(DApr == 0 & DFeb == 0){
-        crops[1, 'FAL1'] <- T1 * (R3)} 
+        crops[1, 'FAL1'] <- T1 * (RH)} 
       if(DApr == 1 & DFeb == 0){
-        crops[1, 'LCM'] <- T1 * R3
+        crops[1, 'LCM'] <- T1 * RH
       }
     }
   }
